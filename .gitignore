@@ -205,3 +205,27 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ---------------------------------
+# REGOLE SPECIFICHE PROGETTO F1
+# ---------------------------------
+
+# Ignora tutte le cartelle dati (FONDAMENTALE)
+data/
+fastf1_cache/
+
+# Ignora file di dati pesanti ovunque si trovino
+*.csv
+*.parquet
+*.pkl
+*.zip
+
+# Ignora i file dei modelli pesanti (carica solo quello finale a mano)
+*.h5
+*.pth
+*.onnx
+*.keras
+
+# Ignora le cartelle personali nei notebook (ma mantieni la struttura)
+notebooks/sandboxes/*
+!notebooks/sandboxes/.gitkeep
