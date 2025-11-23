@@ -1,0 +1,17 @@
+# --- Dati F1 ---
+fastf1>=3.3.0
+pandas>=2.0.0
+numpy>=1.24.0
+requests
+
+# --- Grafici ---
+matplotlib>=3.7.0
+seaborn
+
+# --- Deep Learning (Modello B) ---
+torch              # PyTorch
+scikit-learn       # Per normalizzare i dati
+
+# --- Utilità ---
+tqdm               # Barre di caricamento
+jupyter            # Per usare i notebook
