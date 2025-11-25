@@ -2,36 +2,57 @@
 
 class MockModel:
     """
-    Simula il comportamento della vettura ad Abu Dhabi
-    in attesa che il Membro B finisca la Rete Neurale vera (LSTM).
+    Simula il comportamento della vettura ad Abu Dhabi (Yas Marina).
+    Implementa le 30 variabili strategiche definite nel documento.
     """
     def __init__(self):
-        # Dati estratti dai tuoi PDF "Variabili determinanti"
-        self.PIT_LOSS = 22.0       # Secondi persi in pit lane (tunnel uscita)
-        self.FUEL_BURN = 1.8       # Kg consumati per giro
-        self.FUEL_TIME_GAIN = 0.03 # Guadagno tempo (sec) per ogni Kg in meno
+        # --- VARIABILI SPECIFICHE ABU DHABI (Costanti) ---
+        self.PIT_LOSS_BASE = 22.0      # Variabile 23: Tunnel uscita box
+        self.FUEL_BURN = 1.8           # Variabile 22: Consumo kg/giro
+        self.FUEL_TIME_GAIN = 0.035    # Guadagno tempo per kg perso
+        self.OVERTAKE_DELTA = 1.5      # Variabile 25: Delta necessario per sorpasso
         
-        # Passo gara base indicativo per Abu Dhabi (1:28.0)
+        # Base pace (indicativo)
         self.base_pace = 88.0 
 
-    def predict_pace(self, compound, tyre_age, fuel_load):
+    def predict_pace(self, compound, tyre_age, fuel_load, track_temp_drop=0):
         """
-        Restituisce il tempo previsto sul giro (in secondi).
+        Calcola il tempo sul giro basandosi su variabili fisiche.
+        track_temp_drop: Gradi persi rispetto all'inizio (es. -5 gradi)
         """
-        # 1. Degrado Gomma (Semplificato per ora)
-        # Soft degrada molto (0.15s/giro), Hard poco (0.04s/giro)
+        # 1. DEGRADO BASE (Variabili 1, 13)
         if compound == 'SOFT':
-            degrade = 0.15 * tyre_age  
+            base_deg = 0.15 
+            warmup_laps = 1  # Variabile 12: Soft entra subito
         elif compound == 'MEDIUM':
-            degrade = 0.08 * tyre_age
+            base_deg = 0.08
+            warmup_laps = 2
         else: # HARD
-            degrade = 0.04 * tyre_age
+            base_deg = 0.04
+            warmup_laps = 4  # Hard ci mette tanto a scaldarsi
             
-        # 2. Effetto Carburante (Più è leggera, più va forte)
-        # 100kg all'inizio -> macchina lenta. 0kg alla fine -> macchina veloce.
+        # 2. EFFETTO TEMPERATURA (Variabile 21)
+        # Se la pista si raffredda (notte), le Hard fanno più fatica (Warmup più lungo)
+        # ma il degrado termico scende.
+        if track_temp_drop < -5: 
+            base_deg *= 0.9  # Degrado migliora col fresco
+            warmup_laps += 1 # Ma warmup peggiora
+            
+        # Calcolo Degrado Effettivo
+        current_degrade = base_deg * tyre_age
+        
+        # Penalità Warmup (Gomme fredde appena usciti dai box)
+        warmup_penalty = 0.0
+        if tyre_age < warmup_laps:
+            warmup_penalty = 1.5 # Primo giro lento!
+            
+        # 3. EFFETTO CARBURANTE (Variabile 3)
         fuel_penalty = fuel_load * self.FUEL_TIME_GAIN
         
-        return self.base_pace + degrade + fuel_penalty
+        return self.base_pace + current_degrade + fuel_penalty + warmup_penalty
 
-    def get_pit_loss(self):
-        return self.PIT_LOSS
+    def get_pit_loss(self, safety_car=False):
+        # Variabile 9: Track Status impact
+        if safety_car:
+            return 14.0 # Sosta "economica" sotto SC
+        return self.PIT_LOSS_BASE

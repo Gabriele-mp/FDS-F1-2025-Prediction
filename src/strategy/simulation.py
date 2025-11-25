@@ -1,59 +1,110 @@
-# src/strategy/simulation.py
+import matplotlib.pyplot as plt
 from src.models.mock import MockModel
 
-class RaceStrategist:
-    def __init__(self, model):
-        self.model = model
-        self.TOTAL_LAPS = 58 # Giri totali GP Abu Dhabi
+class RaceSimulation:
+    def __init__(self):
+        self.model = MockModel()
+        self.TOTAL_LAPS = 58
+        
+    def run_advanced_simulation(self, my_strat, rival_strat, start_fuel=100.0):
+        # Liste per i grafici
+        laps = []
+        my_times = []
+        rival_times = []
+        
+        # Stato Iniziale
+        my_tyre_age = 0
+        my_compound = my_strat['start_tyre']
+        rival_tyre_age = 0
+        rival_compound = rival_strat['start_tyre']
+        
+        track_temp_drop = 0 
+        
+        print(f"🚦 START GP ABU DHABI | Fuel: {start_fuel}kg")
+        
+        for lap in range(1, self.TOTAL_LAPS + 1):
+            # 1. Variabili Ambientali
+            if lap % 10 == 0: track_temp_drop -= 1
+            current_fuel = start_fuel - (lap * 1.8)
+            
+            # 2. Gestione Pit Stop
+            # Nota: Qui calcoliamo solo il passo puro. 
+            # Il tempo perso (22s) lo aggiungeremo nel grafico cumulativo.
+            
+            if lap == my_strat['pit_lap']:
+                print(f"Lap {lap}: BOX BOX (Io) -> HARD")
+                my_compound = 'HARD'
+                my_tyre_age = 0
+            
+            if lap == rival_strat['pit_lap']:
+                print(f"Lap {lap}: RIVALE BOX -> HARD")
+                rival_compound = 'HARD'
+                rival_tyre_age = 0
+            
+            # 3. Predizione
+            my_time = self.model.predict_pace(my_compound, my_tyre_age, current_fuel, track_temp_drop)
+            rival_time = self.model.predict_pace(rival_compound, rival_tyre_age, current_fuel, track_temp_drop)
+            
+            # 4. Salvataggio Dati
+            laps.append(lap)
+            my_times.append(my_time)
+            rival_times.append(rival_time)
+            
+            my_tyre_age += 1
+            rival_tyre_age += 1
 
-    def check_undercut_opportunity(self, current_lap, my_car, rival_car):
+        return laps, my_times, rival_times
+
+    def plot_results(self, laps, my_times, rival_times, my_pit, rival_pit):
         """
-        Valuta se conviene fermarsi ORA per superare il rivale (Undercut).
+        Genera il grafico del distacco cumulativo.
         """
-        print(f"\n--- Analisi Strategica Giro {current_lap} ---")
+        # Calcolo tempi cumulativi (Gara vera)
+        cum_me = []
+        cum_rival = []
+        sum_m = 0
+        sum_r = 0
+        pit_loss = self.model.get_pit_loss() # 22s
         
-        # 1. Calcolo benzina attuale
-        fuel_now = 100 - (current_lap * 1.8)
+        for lap, tm, tr in zip(laps, my_times, rival_times):
+            sum_m += tm
+            sum_r += tr
+            # Aggiungo penalità se è il giro del pit
+            if lap == my_pit: sum_m += pit_loss
+            if lap == rival_pit: sum_r += pit_loss
+            
+            cum_me.append(sum_m)
+            cum_rival.append(sum_r)
+            
+        # Delta: (Tempo Mio - Tempo Rivale). Se negativo, sono davanti io!
+        delta = [m - r for m, r in zip(cum_me, cum_rival)]
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(laps, delta, color='purple', linewidth=2, label='Distacco (sec)')
+        plt.axhline(0, color='black', linestyle='--', label='Parità')
+        
+        # Coloro le aree
+        plt.fill_between(laps, delta, 0, where=[d<0 for d in delta], facecolor='green', alpha=0.3, label='Io in Testa')
+        plt.fill_between(laps, delta, 0, where=[d>0 for d in delta], facecolor='red', alpha=0.3, label='Rivale in Testa')
+        
+        plt.title(f'Simulazione Strategia: Pit L{my_pit} (Io) vs Pit L{rival_pit} (Rivale)')
+        plt.xlabel('Giro')
+        plt.ylabel('Distacco (< 0 = Vinco Io)')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
 
-        # 2. SCENARIO A: RIMANGO FUORI (Gomme vecchie)
-        time_stay_out = self.model.predict_pace(
-            my_car['compound'], my_car['tyre_age'], fuel_now
-        )
-        
-        # 3. SCENARIO B: MI FERMO (Gomme nuove Hard)
-        # Nota: Se mi fermo, l'età della gomma diventa 0
-        time_box_now = self.model.predict_pace(
-            'HARD', 0, fuel_now
-        )
-        
-        # 4. CALCOLO DEL VANTAGGIO
-        pace_advantage = time_stay_out - time_box_now
-        pit_loss = self.model.get_pit_loss() # 22 secondi
-        
-        print(f"Passo attuale (Gomme vecchie): {time_stay_out:.3f}s")
-        print(f"Passo potenziale (Gomme nuove): {time_box_now:.3f}s")
-        print(f"Guadagno di passo: {pace_advantage:.3f}s al giro")
-        print(f"Distacco dal rivale: {rival_car['gap_to_me']}s")
-        
-        # --- LOGICA DI DECISIONE ---
-        # La regola d'oro: Se guadagno > 1.5s al giro E il rivale è vicino (<2s)
-        # allora l'undercut è potente.
-        if pace_advantage > 1.5 and rival_car['gap_to_me'] < 2.0:
-            return True, "BOX BOX! Tenta l'Undercut ora!"
-        else:
-            return False, "STAY OUT. Non hai abbastanza vantaggio."
-
-# --- BLOCCO DI TEST (Simulazione) ---
 if __name__ == "__main__":
-    # Inizializzo il modello finto
-    mock_model = MockModel()
-    strategist = RaceStrategist(mock_model)
+    sim = RaceSimulation()
     
-    # Simulo una situazione di gara (es. Ferrari vs Mercedes)
-    my_ferrari = {'compound': 'MEDIUM', 'tyre_age': 18} # Gomme medie usate da 18 giri
-    rival_mercedes = {'gap_to_me': 1.2} # Lui è davanti di 1.2 secondi
+    # Definisci le strategie
+    my_pit = 18
+    rival_pit = 24
     
-    # Chiedo all'algoritmo cosa fare al giro 20
-    decision, message = strategist.check_undercut_opportunity(20, my_ferrari, rival_mercedes)
+    laps, me, rival = sim.run_advanced_simulation(
+        {'start_tyre': 'MEDIUM', 'pit_lap': my_pit},
+        {'start_tyre': 'MEDIUM', 'pit_lap': rival_pit}
+    )
     
-    print(f"DECISIONE MURETTO: {message}")
+    # Mostra il grafico
+    sim.plot_results(laps, me, rival, my_pit, rival_pit)
