@@ -211,8 +211,8 @@ __marimo__/
 # ---------------------------------
 
 # Ignora tutte le cartelle dati (FONDAMENTALE)
-data/
-fastf1_cache/
+/ data/
+/fastf1_cache/
 
 # Ignora file di dati pesanti ovunque si trovino
 *.csv
@@ -229,3 +229,4 @@ fastf1_cache/
 # Ignora le cartelle personali nei notebook (ma mantieni la struttura)
 notebooks/sandboxes/*
 !notebooks/sandboxes/.gitkeep
+
