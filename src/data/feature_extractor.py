@@ -1,6 +1,6 @@
 """
-Feature Extractor per Austin GP 2024
-✅ VERSIONE PRE-GARA: Usa solo FP1, FP2, Qualifying, Sprint
+Feature Extractor Generico
+✅ VERSIONE PRE-GARA: Usa solo dati disponibili prima della gara
 ❌ NON usa dati dalla Race che stiamo predicendo
 """
 
@@ -19,21 +19,24 @@ class FeatureExtractor:
     def extract_long_run_pace(self):
         """
         Estrae il pace factor dai long run.
-        ✅ PRE-GARA: Priorità FP2 > Sprint
+        ✅ PRE-GARA: Priorità FP2 > Sprint > FP1
         """
-        # PRIORITÀ: FP2 prima!
+        # PRIORITÀ: FP2 prima (più rappresentativo)
         if 'FP2' in self.sessions and self.sessions['FP2'] is not None:
             session = self.sessions['FP2']
             print("📊 Usando FP2 per pace (long runs)")
         elif 'Sprint' in self.sessions and self.sessions['Sprint'] is not None:
             session = self.sessions['Sprint']
             print("📊 Usando Sprint per pace (fallback)")
+        elif 'FP1' in self.sessions and self.sessions['FP1'] is not None:
+            session = self.sessions['FP1']
+            print("📊 Usando FP1 per pace (fallback)")
         else:
             raise ValueError("Nessuna sessione disponibile per pace!")
         
         laps = session.laps[session.laps['LapTime'].notna()]
         
-        # Usa i 5 giri migliori di ogni pilota
+        # Usa i 5 giri migliori di ogni pilota (più robusto)
         pace_dict = {}
         
         for driver in laps['Driver'].unique():
@@ -52,10 +55,9 @@ class FeatureExtractor:
         Estrae le posizioni di qualifica.
         ✅ PRE-GARA: Usa Qualifying o Sprint Qualifying
         """
-        # Prova tutte le varianti di chiave
         quali = None
         
-        # Prova chiavi esatte
+        # Prova tutte le varianti di chiave
         for key in ['Qualifying', 'Sprint Qualifying', 'Sprint']:
             if key in self.sessions and self.sessions[key] is not None:
                 quali = self.sessions[key]
@@ -81,10 +83,12 @@ class FeatureExtractor:
         """
         Stima il compound di partenza dalla Qualifying.
         ✅ PRE-GARA: Usa gomma più veloce in Q2/Q3
+        
+        Regola F1: Top 10 partono con gomma usata in Q2
         """
-        # Prova tutte le varianti
         quali = None
         
+        # Prova tutte le varianti
         for key in ['Qualifying', 'Sprint Qualifying']:
             if key in self.sessions and self.sessions[key] is not None:
                 quali = self.sessions[key]
@@ -101,7 +105,7 @@ class FeatureExtractor:
         for driver in laps['Driver'].unique():
             driver_laps = laps[laps['Driver'] == driver]
             
-            # Prendi il giro più veloce
+            # Prendi il giro più veloce (rappresenta la gomma di partenza)
             if len(driver_laps) > 0:
                 fastest = driver_laps.nsmallest(1, 'LapTime').iloc[0]
                 if pd.notna(fastest.get('Compound')):
@@ -174,23 +178,43 @@ class FeatureExtractor:
         print(f"\n✅ Grid creato: {len(df)} piloti")
         return df
     
-    def tyre_degrade_rate(self, compound='MEDIUM'):
+    def tyre_degrade_rate(self, compound='MEDIUM', circuit_config=None):
         """
         Calcola il tasso di degrado gomme da FP2 long runs.
-        ✅ PRE-GARA: Usa solo Practice sessions
+        ✅ PRE-GARA: Usa Practice sessions o config circuito
+        
+        Args:
+            circuit_config: Dict da CircuitConfig.get()
         """
-        fp2 = self.sessions.get('FP2')
+        session = None
         
-        if fp2 is None:
-            print("⚠️ Nessuna FP2, uso degrado default Austin = 0.08s/giro")
-            return 0.08
+        # Prova FP2 poi FP1
+        if 'FP2' in self.sessions and self.sessions['FP2'] is not None:
+            session = self.sessions['FP2']
+            session_name = 'FP2'
+        elif 'FP1' in self.sessions and self.sessions['FP1'] is not None:
+            session = self.sessions['FP1']
+            session_name = 'FP1'
         
-        laps = fp2.laps
+        if session is None:
+            # Usa config storica circuito
+            if circuit_config and compound in circuit_config['tyre_degradation']:
+                degrade = circuit_config['tyre_degradation'][compound]
+                print(f"📉 Degrado {compound}: {degrade:.4f}s/giro (da config circuito)")
+                return degrade
+            else:
+                print(f"⚠️ Nessun dato, uso default 0.08")
+                return 0.08
+        
+        # Calcola da sessione
+        laps = session.laps
         laps = laps[laps['Compound'] == compound]
         laps = laps[laps['LapTime'].notna()]
         
         if len(laps) < 10:
-            print(f"⚠️ Pochi dati FP2 per {compound}, uso default")
+            # Fallback a config
+            if circuit_config and compound in circuit_config['tyre_degradation']:
+                return circuit_config['tyre_degradation'][compound]
             return 0.08
         
         # Trova stint lunghi (8+ giri continui)
@@ -199,6 +223,8 @@ class FeatureExtractor:
         long_stints = laps[laps['StintLap'] >= 8]
         
         if len(long_stints) == 0:
+            if circuit_config:
+                return circuit_config['tyre_degradation'].get(compound, 0.08)
             return 0.08
         
         # Calcola pendenza media tempo vs giro
@@ -215,17 +241,26 @@ class FeatureExtractor:
         
         if degrade_rates:
             avg_degrade = np.median(degrade_rates)
-            print(f"📉 Degrado {compound} da FP2: {avg_degrade:.4f}s/giro")
+            print(f"📉 Degrado {compound} da {session_name}: {avg_degrade:.4f}s/giro")
             return max(0.02, avg_degrade)
         
+        # Ultima risorsa: config circuito
+        if circuit_config:
+            return circuit_config['tyre_degradation'].get(compound, 0.08)
         return 0.08
     
-    def optimal_pit_window(self):
+    def optimal_pit_window(self, circuit_config=None):
         """
-        Ritorna finestra pit storica per Austin.
-        ✅ PRE-GARA: Valore fisso da analisi storica circuito
+        Ritorna finestra pit da config circuito.
+        ✅ PRE-GARA: Valore storico fisso
+        
+        Args:
+            circuit_config: Dict da CircuitConfig.get()
         """
-        print("🔧 Finestra pit storica Austin: giro 23 ± 5")
-        return (23, 5)
-# --- FINE FILE ---
-
+        if circuit_config and 'pit_window' in circuit_config:
+            window = circuit_config['pit_window']
+            print(f"🔧 Finestra pit (config circuito): giro {window[0]} ± {window[1]}")
+            return window
+        else:
+            print("🔧 Finestra pit default: giro 25 ± 5")
+            return (25, 5)

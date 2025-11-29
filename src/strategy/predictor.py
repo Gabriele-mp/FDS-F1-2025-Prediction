@@ -1,13 +1,19 @@
 """
-STEP 3: Wrapper per usare GlobalRaceSimulator con dati reali - FIXED
+STEP 3: Wrapper per usare GlobalRaceSimulator con dati reali - FIXED v2
 """
 import pandas as pd
 import numpy as np
 from src.strategy.global_simulation import GlobalRaceSimulator
+from src.data.circuit_configs import CircuitConfig
 
 class RacePredictor:
     def __init__(self, track_name='AUSTIN'):
-        self.simulator = GlobalRaceSimulator(track_name)
+        self.track_name = track_name
+        config = CircuitConfig.get(track_name)
+        self.simulator = GlobalRaceSimulator(
+            total_laps=config['total_laps'],
+            pit_loss_time=config['pit_loss_time']
+        )
         
     def optimize_pit_strategy(self, grid_df, use_real_pits=False, real_pit_stops=None):
         """
@@ -16,9 +22,13 @@ class RacePredictor:
         Args:
             grid_df: DataFrame con piloti
             use_real_pits: Se True, usa pit stop reali (per validazione fisica)
-            real_pit_stops: DataFrame con pit stop reali da austin_loader
+            real_pit_stops: DataFrame con pit stop reali
         """
         print("🔍 Ottimizzazione strategia pit stop...")
+        
+        # Aggiungi colonna PitLap se non esiste
+        if 'PitLap' not in grid_df.columns:
+            grid_df['PitLap'] = 0
         
         if use_real_pits and real_pit_stops is not None:
             # USA PIT STOP REALI (per testare solo la fisica, non la strategia)
@@ -80,8 +90,8 @@ class RacePredictor:
         # Ottimizza strategie
         grid_df = self.optimize_pit_strategy(grid_df, use_real_pits, real_pit_stops)
         
-        # Inizializza simulatore
-        self.simulator.initialize_grid(grid_df)
+        # Inizializza simulatore CON IL DATAFRAME CORRETTO
+        self.simulator.initialize_grid(grid_df)  # ✅ USA grid_df direttamente
         
         # RUN SIMULATION
         history_df = self.simulator.run_simulation()
@@ -112,7 +122,7 @@ class RacePredictor:
         
         Args:
             predictions: DataFrame da predict_race()
-            actual_results: DataFrame da austin_loader.get_race_results()
+            actual_results: DataFrame da get_race_results()
         """
         print("\n" + "="*60)
         print("📊 VALIDAZIONE: Predetto vs Reale")
@@ -139,7 +149,7 @@ class RacePredictor:
         # Metriche
         mae = comparison['AbsError'].mean()
         correct_top3 = (comparison[comparison['ActualPosition'] <= 3]['AbsError'] == 0).sum()
-        correct_top10 = (comparison[comparison['ActualPosition'] <= 10]['AbsError'] <= 2).sum()  # Tolleranza 2 pos
+        correct_top10 = (comparison[comparison['ActualPosition'] <= 10]['AbsError'] <= 2).sum()
         
         print(f"\n📈 METRICHE:")
         print(f"  • MAE (Mean Absolute Error): {mae:.2f} posizioni")
@@ -154,35 +164,3 @@ class RacePredictor:
                 print(f"  {row['Driver']}: Predetto {int(row['PredictedPosition'])} | Reale {int(row['ActualPosition'])} | Err {int(row['Error'])}")
         
         return comparison
-
-
-# TEST RAPIDO
-if __name__ == "__main__":
-    from src.data.austin_loader import AustinDataLoader
-    from src.data.feature_extractor import FeatureExtractor
-    
-    # Carica dati
-    loader = AustinDataLoader()
-    sessions = loader.load_all_sessions()
-    actual_results = loader.get_race_results()
-    pit_stops = loader.get_pit_stops()
-    
-    # Estrai features
-    extractor = FeatureExtractor(sessions)
-    grid_df = extractor.create_grid_dataframe()
-    
-    # TEST 1: Predizione con strategia ottimizzata
-    print("\n" + "="*60)
-    print("TEST 1: PREDIZIONE STRATEGIA")
-    print("="*60)
-    predictor = RacePredictor()
-    predictions = predictor.predict_race(grid_df, use_real_pits=False)
-    comparison1 = predictor.compare_with_actual(predictions, actual_results)
-    
-    # TEST 2: Validazione fisica (usa pit stop reali)
-    print("\n" + "="*60)
-    print("TEST 2: VALIDAZIONE FISICA (pit reali)")
-    print("="*60)
-    predictor2 = RacePredictor()
-    predictions2 = predictor2.predict_race(grid_df, use_real_pits=True, real_pit_stops=pit_stops)
-    comparison2 = predictor2.compare_with_actual(predictions2, actual_results)
