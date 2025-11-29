@@ -230,3 +230,4 @@ __marimo__/
 notebooks/sandboxes/*
 !notebooks/sandboxes/.gitkeep
 
+.DS_Store
