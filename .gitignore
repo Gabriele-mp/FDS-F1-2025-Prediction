@@ -227,5 +227,5 @@ fastf1_cache/
 *.keras
 
 # Ignora le cartelle personali nei notebook (ma mantieni la struttura)
-notebooks/sandboxes/*
-!notebooks/sandboxes/.gitkeep
+#notebooks/sandboxes/*
+#!notebooks/sandboxes/.gitkeep

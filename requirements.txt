@@ -4,6 +4,9 @@ pandas>=2.0.0
 numpy>=1.24.0
 requests
 
+# --- Salvataggio Dati
+pyarrow          # Serve a Pandas per creare i file .parquet
+
 # --- Grafici ---
 matplotlib>=3.7.0
 seaborn
